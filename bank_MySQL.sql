@@ -1298,44 +1298,53 @@ DELIMITER $$
 CREATE TRIGGER set_commission_legal_entities
     BEFORE INSERT ON журнал_операцій_юридичних_осіб FOR EACH ROW
 BEGIN
-	SET @currensy_id = (SELECT ід_валюти FROM тарифи_для_юридичних_осіб WHERE ід = (SELECT ід_тарифу FROM рахунки_юридичних_осіб 
-																		       WHERE ід = NEW.ід_рахунку_юридичної_особи));
-	SET @remainder = (SELECT залишок FROM рахунки_юридичних_осіб WHERE ід = NEW.ід_рахунку);
-	IF NEW.ід_рахунку IS NULL THEN 
-  		IF NEW.ід_валюти != @currensy_id THEN
- 			SIGNAL SQLSTATE '02000' SET MESSAGE_TEXT = 'Warning: Валюти відрізняються';
-   		ELSE 
-			IF NEW.сума > 0 THEN
-				SET NEW.сума_комісії = NEW.сума * 0.04;
-			ELSE
-				SET NEW.сума_комісії = 0 - (NEW.сума * 0.04);
-			END IF;
-   		END IF;
+	SELECT працівники.дата_звільнення
+	INTO @status_employee
+	FROM працівники
+	WHERE працівники.ід = NEW.ід_працівника;
+
+	IF @status_employee IS NOT NULL THEN
+		SIGNAL SQLSTATE '02000' SET MESSAGE_TEXT = 'Warning: Працівника було звільнено';
 	ELSE
- 		IF NEW.ід_валюти = @currensy_id THEN
-			SET @commission_percent_removal = (SELECT тарифи_для_юридичних_осіб.відсоток_комісії_зняття_коштів
-											  FROM тарифи_для_юридичних_осіб, рахунки_юридичних_осіб
-											  WHERE тарифи_для_юридичних_осіб.ід = рахунки_юридичних_осіб.ід_тарифу
-											  AND рахунки_юридичних_осіб.ід = NEW.ід_рахунку);
-			SET @commission_percent_replenishment = (SELECT тарифи_для_юридичних_осіб.відсоток_комісії_поповнення
-												    FROM тарифи_для_юридичних_осіб, рахунки_юридичних_осіб
-												    WHERE тарифи_для_юридичних_осіб.ід = рахунки_юридичних_осіб.ід_тарифу
-												    AND рахунки_юридичних_осіб.ід = NEW.ід_рахунку);
-   		ELSE 
- 			SIGNAL SQLSTATE '02000' SET MESSAGE_TEXT = 'Warning: Валюти відрізняються';
-   		END IF;
-	
-		IF NEW.сума > 0 THEN
-			SET NEW.сума_комісії = NEW.сума * @commission_percent_replenishment;
+		SET @currensy_id = (SELECT ід_валюти FROM тарифи_для_юридичних_осіб WHERE ід = (SELECT ід_тарифу FROM рахунки_юридичних_осіб 
+																				   WHERE ід = NEW.ід_рахунку_юридичної_особи));
+		SET @remainder = (SELECT залишок FROM рахунки_юридичних_осіб WHERE ід = NEW.ід_рахунку);
+		IF NEW.ід_рахунку IS NULL THEN 
+			IF NEW.ід_валюти != @currensy_id THEN
+				SIGNAL SQLSTATE '02000' SET MESSAGE_TEXT = 'Warning: Валюти відрізняються';
+			ELSE 
+				IF NEW.сума > 0 THEN
+					SET NEW.сума_комісії = NEW.сума * 0.04;
+				ELSE
+					SET NEW.сума_комісії = 0 - (NEW.сума * 0.04);
+				END IF;
+			END IF;
 		ELSE
-			SET NEW.сума_комісії = 0 - (NEW.сума * @commission_percent_removal);
-		END IF;
-	
-   		IF @remainder < (NEW.сума_комісії + NEW.сума) OR  @remainder < NEW.сума_комісії THEN
-			SIGNAL SQLSTATE '02000' SET MESSAGE_TEXT = 'Warning: На рахунку недостатньо коштів';
-   		ELSE
-			UPDATE рахунки_юридичних_осіб SET залишок = залишок - NEW.сума - NEW.сума_комісії WHERE ід = NEW.ід_рахунку;
-			UPDATE рахунки_юридичних_осіб SET залишок = залишок - NEW.сума + NEW.сума WHERE ід = NEW.ід_рахунку_юридичної_особи;
+			IF NEW.ід_валюти = @currensy_id THEN
+				SET @commission_percent_removal = (SELECT тарифи_для_юридичних_осіб.відсоток_комісії_зняття_коштів
+												  FROM тарифи_для_юридичних_осіб, рахунки_юридичних_осіб
+												  WHERE тарифи_для_юридичних_осіб.ід = рахунки_юридичних_осіб.ід_тарифу
+												  AND рахунки_юридичних_осіб.ід = NEW.ід_рахунку);
+				SET @commission_percent_replenishment = (SELECT тарифи_для_юридичних_осіб.відсоток_комісії_поповнення
+														FROM тарифи_для_юридичних_осіб, рахунки_юридичних_осіб
+														WHERE тарифи_для_юридичних_осіб.ід = рахунки_юридичних_осіб.ід_тарифу
+														AND рахунки_юридичних_осіб.ід = NEW.ід_рахунку);
+			ELSE 
+				SIGNAL SQLSTATE '02000' SET MESSAGE_TEXT = 'Warning: Валюти відрізняються';
+			END IF;
+		
+			IF NEW.сума > 0 THEN
+				SET NEW.сума_комісії = NEW.сума * @commission_percent_replenishment;
+			ELSE
+				SET NEW.сума_комісії = 0 - (NEW.сума * @commission_percent_removal);
+			END IF;
+		
+			IF @remainder < (NEW.сума_комісії + NEW.сума) OR  @remainder < NEW.сума_комісії THEN
+				SIGNAL SQLSTATE '02000' SET MESSAGE_TEXT = 'Warning: На рахунку недостатньо коштів';
+			ELSE
+				UPDATE рахунки_юридичних_осіб SET залишок = залишок - NEW.сума - NEW.сума_комісії WHERE ід = NEW.ід_рахунку;
+				UPDATE рахунки_юридичних_осіб SET залишок = залишок - NEW.сума + NEW.сума WHERE ід = NEW.ід_рахунку_юридичної_особи;
+			END IF;
 		END IF;
 	END IF;
 END$$    
@@ -1386,61 +1395,94 @@ DELIMITER ;
 DROP TRIGGER check_sum_deposit;
 
 -- ---------------------------7---------------------------------
---
+-- перевірка чи не є цей працівник звільненим
+DELIMITER $$
+CREATE TRIGGER check_employee
+    BEFORE INSERT ON журнал_касових_операцій FOR EACH ROW
+BEGIN
+	SELECT працівники.дата_звільнення
+	INTO @status_employee
+	FROM працівники
+	WHERE працівники.ід = NEW.ід_працівника;
+    
+    IF @status_employee IS NOT NULL THEN
+		SIGNAL SQLSTATE '02000' SET MESSAGE_TEXT = 'Warning: Працівника було звільнено';
+	END IF;
+END$$    
+DELIMITER ;
+
+DROP TRIGGER check_employee;
 
 
-
-
--- --------------------- переробити функції
                  -- -------------------------------------------------------------
                  --                      ФУНКЦІЇ                               --
 				 -- -------------------------------------------------------------
 -- ----------------------------1-------------------------------
--- курс валюти
-CREATE FUNCTION current_exchange_rate (currency VARCHAR(15)) 
-RETURNS TABLE(
-	вартість_придбання MONEY,
-	вартість_продажі MONEY) AS $$
+-- повертає рівень клієнта на основі кредиту
+DELIMITER $$
+CREATE FUNCTION client_card_level(
+	sum_credit DECIMAL(10,2)
+) 
+RETURNS VARCHAR(20) 
+deterministic
 BEGIN
-	IF currency ~ '^[0-9]+$' THEN
-		RETURN QUERY
-             SELECT курси_валют.вартість_придбання, курси_валют.вартіть_продажі 
-			 FROM курси_валют 
-			 WHERE ід_валюти = currency::INT 
-			 ORDER BY дата_час_встановлення_курсу DESC 
-			 LIMIT 1;
-	ELSIF currency ~ '^[^0-9]+$' THEN
-		RETURN QUERY
-             SELECT курси_валют.вартість_придбання, курси_валют.вартіть_продажі 
-			 FROM курси_валют, довідник_валют 
-			 WHERE назва = currency OR коротка_назва = currency  
-			 ORDER BY дата_час_встановлення_курсу DESC 
-			 LIMIT 1;
-	ELSE
-		RAISE EXCEPTION 'Невірно введено валюту: %', currency
-      			USING HINT = 'Будь ласка, перевірте дані!';
-	END IF;
-END;
-$$ LANGUAGE plpgsql;
+    DECLARE client_card_Level VARCHAR(20);
 
-SELECT * FROM курси_валют
+    IF sum_credit <= 200000 THEN
+		SET client_card_Level = 'standart';
+    ELSEIF (sum_credit >= 200000 AND 
+			sum_credit <= 500000) THEN
+        SET client_card_Level = 'silver';
+    ELSEIF (sum_credit > 500000 AND 
+			sum_credit < 1000000) THEN
+        SET client_card_Level = 'gold';
+	ELSEIF sum_credit >= 1000000 THEN
+        SET client_card_Level = 'vip';
+    END IF;
+	RETURN (client_card_Level);
+END$$
+DELIMITER ;
 
-DROP FUNCTION current_exchange_rate;
+select client_card_level(1000000);
+-- ----------------------------2-------------------------------
+-- кількість працівників певної професії в певному підрозділі
+DELIMITER $$
+CREATE FUNCTION count_employees(position_empl VARCHAR(35), department VARCHAR(35)) 
+RETURNS INT 
+deterministic
+BEGIN
+    DECLARE employees_count INT;
+    SET employees_count = (SELECT COUNT(працівники.ід_штатного_розпису)
+						  FROM штатний_розпис INNER JOIN працівники ON штатний_розпис.ід = працівники.ід_штатного_розпису
+						  INNER JOIN підрозділи ON підрозділи.ід = штатний_розпис.ід_підрозділу
+                          WHERE штатний_розпис.назва_посади = position_empl
+                          AND підрозділи.назва = department);
+	RETURN employees_count;
+END$$
+DELIMITER ;
 
-SELECT * FROM current_exchange_rate('2');
+select count_employees('Бухгалтер', 'Відділення №21');
+-- ----------------------------3-------------------------------
+-- особа, дата осаннього переказу коштів
+-- ----------------------------4-------------------------------
+-- 
+-- ----------------------------5-------------------------------
+--
 
-                 ---------------------------------------------------------------
+                 -- -------------------------------------------------------------
                  --                      КОРИСТУВАЧІ                           --
-				 ---------------------------------------------------------------
+				 -- -------------------------------------------------------------
 -- ---------------------------1---------------------------------
---
+CREATE USER 'Misha'@'%' IDENTIFIED BY 'fgcfhcuy';
+GRANT INSERT, SELECT, UPDATE ON bank.* TO 'Misha'@'%';
+REVOKE UPDATE ON bank.* FROM 'Misha'@'%';
 -- ---------------------------2---------------------------------
---
+CREATE USER 'Olya'@'%' IDENTIFIED BY '5r56df';
+GRANT INDEX, CREATE, SELECT ON *.* TO 'Olya'@'%';
+DROP USER 'Olya'@'%';
 -- ---------------------------3---------------------------------
---
-
-
-
+CREATE USER 'Ivan'@'%' IDENTIFIED BY 'fbhdg4';
+GRANT DROP, UPDATE ON bank.журнажурнал_касових_операцій TO 'Ivan'@'%';
 
                  ---------------------------------------------------------------
                  --                        СПІЛЬНЕ                            --
@@ -1492,262 +1534,14 @@ BEGIN
  	END IF;
 END //
 DELIMITER ;
--- ---------------------------2---------------------------------
--- процедцра для погашення кредитів певної особи
-SELECT * FROM графіки_погашень_кредитів;
 
-UPDATE рахунки_юридичних_осіб SET залишок = 3500::MONEY WHERE ід = 5;
-
-
-delete from графіки_погашень_кредитів
-
-SELECT * FROM рахунки_юридичних_осіб;
-
-SELECT * FROM кредити
-update кредити set дата_закриття_кредиту = NULL where ід = 1;
-
-DROP PROCEDURE loans_repayment(client_name VARCHAR(200));
-  
-CALL loans_repayment('Дочірнє підприємство "ГАЗ-ТЕПЛО" Національної акціонерної компанії "НАФТОГАЗ УКРАЇНИ"'); -- в кінці місяця
-
-CREATE PROCEDURE loans_repayment(client_name VARCHAR(200)) AS $$
-DECLARE 
-    percent_term_interest NUMERIC(3,2);
-	percent_overdue_interest NUMERIC(3,2);
-	ransom_percent FLOAT;
-	ransom MONEY;
-	id_client INT;
-	month_planned_repayment MONEY;
-	balance_to_repayment MONEY;
-	late_payment MONEY; -- прострочені платежі
-	term_interest MONEY; -- строкові відсотки
-	overdue_interest MONEY; -- прострочені відсотки
-	credit_id INT; -- ід поточного кредиту
-	set_month_planned_repayment MONEY;
-	loan_amount MONEY; -- сума позики
-	client_money MONEY;
-	id_card INT;
-BEGIN
-    id_client = (SELECT ід FROM юридичні_особи WHERE повна_назва LIKE '%' || client_name || '%' OR коротка_назва LIKE '%' || client_name || '%');
-	
-	RAISE NOTICE 'client_name: %', id_client;
-	
-	IF id_client IS NULL THEN
-		RAISE EXCEPTION 'Невірно введено дані про клієнта: %', id_client
-      			USING HINT = 'Будь ласка, перевірте дані!';
-	ELSE
-		RAISE NOTICE 'in else statement';
-	
-		SELECT сума_позики, ід, відсотки_пені / 100, ід_рахунку
-		INTO loan_amount, credit_id, ransom_percent, id_card
-		FROM кредити
-		WHERE ід_юридичної_особи = id_client AND дата_закриття_кредиту IS NULL;
-		
-		RAISE NOTICE 'loan_amount: %, credit_id: %, ransom: %', loan_amount, credit_id, ransom;
-		
-		IF credit_id IS NULL THEN
-			RAISE NOTICE 'credit_id: %', credit_id;
-		END IF;
-
-		RAISE NOTICE 'after check credit id';
-		
-		ransom = CAST(CAST((loan_amount::NUMERIC * ransom_percent)::FLOAT AS NUMERIC(5,2)) AS MONEY);
-		
-		RAISE NOTICE 'ransom after calculation: %', ransom;
-		
-		SELECT відсотки_в_місяць_прострочені, відсотки_в_місяць_строкові
- 		INTO percent_overdue_interest, percent_term_interest
-		FROM тарифи_для_юридичних_осіб, рахунки_юридичних_осіб, кредити
-		WHERE тарифи_для_юридичних_осіб.ід = рахунки_юридичних_осіб.ід_тарифу 
-		AND рахунки_юридичних_осіб.ід = кредити.ід_рахунку
-		AND кредити.ід = 1;
-		
-		RAISE NOTICE 'percent_overdue_interest: %, percent_term_interest: %', percent_overdue_interest, percent_term_interest;
-		
-		month_planned_repayment = loan_amount / 24; -- сума платежу в місяць
-									
-		balance_to_repayment = (SELECT залишок_до_погашення FROM графіки_погашень_кредитів -- залишок до погашення минулого платежу
-						       WHERE ід_кредиту = credit_id
-						       ORDER BY дата DESC
-						       LIMIT 1);
-		
-		RAISE NOTICE 'balance_to_repayment: %, month_planned_repayment: %', balance_to_repayment, month_planned_repayment;
-		
-		IF balance_to_repayment IS NULL THEN
-		
-			term_interest = loan_amount * percent_term_interest;
-			
-			RAISE NOTICE 'term_interest: %, loan_amount: %, month_planned_repayment: %', term_interest, loan_amount, month_planned_repayment;
-			
- 			INSERT INTO графіки_погашень_кредитів(ід_кредиту, залишок_до_погашення, сума_кредиту_до_погашення_згідно_графіку, прострочений_кредит, сума_строкових_відсотків, сума_прострочених_відсотків, сума_пені) VALUES 
-			(credit_id, loan_amount, month_planned_repayment, 0, term_interest, 0, 0);
-		ELSE
-			IF balance_to_repayment >= month_planned_repayment THEN		
-				SELECT прострочений_кредит + сума_кредиту_до_погашення_згідно_графіку, 
-					   сума_строкових_відсотків + balance_to_repayment * percent_term_interest, 
-				       сума_прострочених_відсотків * percent_overdue_interest
-				INTO late_payment, term_interest, overdue_interest
-				FROM графіки_погашень_кредитів
-				WHERE ід_кредиту = credit_id
-				ORDER BY дата DESC
-			    LIMIT 1;
-													
-				IF late_payment = 0::MONEY THEN
-					ransom = 0::MONEY;
-				ELSE
-					ransom = ransom;
-				END IF;
-			END IF;
-		END IF;
-		
-		SELECT рахунки_юридичних_осіб.залишок
-		INTO client_money
-		FROM рахунки_юридичних_осіб, кредити
-		WHERE рахунки_юридичних_осіб.ід = кредити.ід_рахунку
-		AND кредити.ід = credit_id;
-		overdue_interest = late_payment * percent_overdue_interest;
-		RAISE NOTICE 'client_money: %, late_payment: %, term_interest: %, overdue_interest: %', client_money, late_payment, term_interest, overdue_interest;
-
-		IF client_money < 1::MONEY THEN
-			RAISE NOTICE 'На рахунку недостатньо коштів';
-			INSERT INTO графіки_погашень_кредитів(ід_кредиту, залишок_до_погашення, сума_кредиту_до_погашення_згідно_графіку, прострочений_кредит, сума_строкових_відсотків, сума_прострочених_відсотків, сума_пені) VALUES
-			(credit_id, balance_to_repayment, month_planned_repayment, late_payment, term_interest, overdue_interest, ransom);
-		ELSE
-			IF client_money < ransom::MONEY THEN
-				ransom = ransom - client_money;
-				client_money = 0::MONEY;
-			ELSE 
-				client_money = client_money - ransom;
-				ransom = 0::MONEY;
-			END IF;
-
-			IF client_money < overdue_interest THEN
-				overdue_interest = overdue_interest - client_money;
-				client_money = 0::MONEY;
-			ELSE 
-				client_money = client_money - overdue_interest;
-				overdue_interest = 0::MONEY;
-			END IF;
-
-			IF client_money < late_payment THEN
-				late_payment = late_payment - client_money;
-				client_money = 0::MONEY;
-			ELSE 
-				client_money = client_money - late_payment;
-				late_payment = 0::MONEY;
-			END IF;
-
-			IF client_money < term_interest THEN
-				term_interest = term_interest - client_money;
-				client_money = 0::MONEY;
-			ELSE 
-				client_money = client_money - term_interest;
-				term_interest = 0::MONEY; 
-			END IF;
-
-			IF client_money < month_planned_repayment THEN
-				set_month_planned_repayment = month_planned_repayment - client_money;
-				client_money = 0::MONEY;
-				late_payment = late_payment + set_month_planned_repayment;
-			ELSE 
-				client_money = client_money - month_planned_repayment;
-				set_month_planned_repayment = 0::MONEY;
-			END IF;
-
-			balance_to_repayment = balance_to_repayment - (month_planned_repayment - set_month_planned_repayment) - client_money;
-
-			IF balance_to_repayment <= 0::MONEY THEN
-				balance_to_repayment = 0::MONEY;
-				UPDATE кредити SET дата_закриття_кредиту = (SELECT CURRENT_TIMESTAMP)
-				WHERE ід_юридичної_особи = id_client;
-				UPDATE рахунки_юридичних_осіб SET залишок = client_money WHERE ід = id_card;
-				INSERT INTO графіки_погашень_кредитів(ід_кредиту, залишок_до_погашення, сума_кредиту_до_погашення_згідно_графіку, прострочений_кредит, сума_строкових_відсотків, сума_прострочених_відсотків, сума_пені) VALUES
-				(credit_id, 0, 0, 0, 0, 0, 0);
-			ELSE
-				RAISE NOTICE 'credit_id: %, loan_amount: %, month_planned_repayment: %, ransom: %', credit_id, loan_amount, month_planned_repayment, ransom;
-  				UPDATE рахунки_юридичних_осіб SET залишок = 0::MONEY WHERE ід = id_card;
-				INSERT INTO графіки_погашень_кредитів(ід_кредиту, залишок_до_погашення, сума_кредиту_до_погашення_згідно_графіку, прострочений_кредит, сума_строкових_відсотків, сума_прострочених_відсотків, сума_пені) VALUES
-				(credit_id, balance_to_repayment, month_planned_repayment, late_payment, term_interest, overdue_interest, ransom);
-			END IF;
-		END IF;
-	END IF;
-END $$
-LANGUAGE plpgsql;
-				 ---------------------------------------------------------------
+				 -- -------------------------------------------------------------
                  --                      ПРЕДСТАВЛЕННЯ                         --
-				 ---------------------------------------------------------------
--- інформація про працівників+++++++++++++++++++++
-CREATE VIEW інформація_про_працівників(працівники, вік, номер_телефону, дата_народження, адреса_проживання, сімейний_стан, стать, посада, підрозділ) AS
-(SELECT працівники.ПІБ, DATE_PART('year',NOW()::timestamp::date) - DATE_PART('year', працівники.дата_народження::date),
-	працівники.номер_телефону, працівники.дата_народження, працівники.адреса_проживання, працівники.сімейний_стан,
-	працівники.стать, штатний_розпис.назва_посади, підрозділи.назва
-FROM підрозділи INNER JOIN штатний_розпис ON підрозділи.ід = штатний_розпис.ід_підрозділу
- INNER JOIN працівники ON штатний_розпис.ід = працівники.ід_штатного_розпису);
-
-SELECT * FROM інформація_про_працівників;
-
--- інформація про фізичних осіб+++++++++++++++++++++
-CREATE VIEW інформація_про_фізичних_осіб(фізичні_особи, вік, номер_телефону, дата_народження, адреса_проживання, сімейний_стан, стать, номер_рахунку) AS
-(SELECT фізичні_особи.ПІБ, DATE_PART('year',NOW()::timestamp::date) - DATE_PART('year', фізичні_особи.дата_народження::date),
-	фізичні_особи.номер_телефону, фізичні_особи.дата_народження, фізичні_особи.адреса_проживання, фізичні_особи.сімейний_стан,
-	фізичні_особи.стать, ARRAY_AGG(карткові_рахунки.номер_рахунку)
-FROM фізичні_особи INNER JOIN карткові_рахунки ON фізичні_особи.ід = карткові_рахунки.ід_фізичної_особи
-GROUP BY фізичні_особи.ПІБ, фізичні_особи.номер_телефону, 
- 	фізичні_особи.дата_народження, фізичні_особи.адреса_проживання, фізичні_особи.сімейний_стан,
-	фізичні_особи.стать);
-
-SELECT * FROM інформація_про_фізичних_осіб;
-
--- інформація про юридичних осіб+++++++++++++++++++++
-CREATE VIEW інформація_про_юридичних_осіб(повна_назва, коротка_назва, дата_реєстрації, керівник, номер_рахунку) AS
-(SELECT юридичні_особи.повна_назва, юридичні_особи.коротка_назва, 
- 	юридичні_особи.дата_реєстрації,
-	фізичні_особи.ПІБ, ARRAY_AGG(рахунки_юридичних_осіб.номер_рахунку)
-FROM фізичні_особи INNER JOIN юридичні_особи ON фізичні_особи.ід = юридичні_особи.ід_керівника
- INNER JOIN рахунки_юридичних_осіб ON юридичні_особи.ід = рахунки_юридичних_осіб.ід_юридичної_особи
-GROUP BY юридичні_особи.повна_назва, юридичні_особи.дата_реєстрації, юридичні_особи.коротка_назва, фізичні_особи.ПІБ);
-
-SELECT * FROM інформація_про_юридичних_осіб;
-
--- інформація про кожну операцію з журналу
-CREATE VIEW інформація_про_погашення_кредитів(ід_кредиту, юридична_особа, залишок_до_погашення, сума_до_погашення, прострочений_кредит, сума_строкових_відсотків, сума_прострочених_відсотків, сума_пені) AS
-(SELECT кредити.ід, юридичні_особи.повна_назва, графіки_погашень_кредитів.залишок_до_погашення, 
- 	графіки_погашень_кредитів.сума_кредиту_до_погашення_згідно_графіку, 
- 	графіки_погашень_кредитів.прострочений_кредит, графіки_погашень_кредитів.сума_строкових_відсотків, 
- 	графіки_погашень_кредитів.сума_прострочених_відсотків, графіки_погашень_кредитів.сума_пені
-FROM юридичні_особи INNER JOIN кредити ON юридичні_особи.ід = кредити.ід_юридичної_особи
- INNER JOIN графіки_погашень_кредитів ON кредити.ід = графіки_погашень_кредитів.ід_кредиту);
-
-SELECT * FROM інформація_про_погашення_кредитів;
-
--- топ три підрозділи по кількості працівників++++++++++++++++++++
-CREATE VIEW подрозділи_найб_ксть_клієнтів(ід_підрозділів, підрозділи, кількість_працівників) AS
-(SELECT підрозділи.ід, підрозділи.назва, COUNT(працівники.ід)
-FROM підрозділи INNER JOIN штатний_розпис ON підрозділи.ід = штатний_розпис.ід_підрозділу
-	INNER JOIN працівники ON штатний_розпис.ід = працівники.ід_штатного_розпису
-GROUP BY підрозділи.ід, підрозділи.назва
-ORDER BY COUNT(працівники.ід) DESC
-LIMIT 3);
--- посада та кількість працівників у цих підрозділах на цих посадах++++++++++++++++=
-SELECT штатний_розпис.назва_посади, COUNT(працівники.ід)
-								  FILTER(WHERE штатний_розпис.ід_підрозділу = (SELECT ід[1] 
-																			FROM (SELECT ARRAY_AGG(ід_підрозділів) AS ід
-															      			FROM подрозділи_найб_ксть_клієнтів) AS ccc)) AS ТОП_1,
-
-								COUNT(працівники.ід)
-								FILTER(WHERE штатний_розпис.ід_підрозділу = (SELECT ід[2] 
-																			FROM (SELECT ARRAY_AGG(ід_підрозділів) AS ід
-																				  FROM подрозділи_найб_ксть_клієнтів) AS ccc)) AS ТОП_2,
-								COUNT(працівники.ід)
-								FILTER(WHERE штатний_розпис.ід_підрозділу = (SELECT ід[3] 
-																			FROM (SELECT ARRAY_AGG(ід_підрозділів) AS ід
-																				  FROM подрозділи_найб_ксть_клієнтів) AS ccc)) AS ТОП_3 
-FROM штатний_розпис INNER JOIN працівники ON штатний_розпис.ід = працівники.ід_штатного_розпису
-GROUP BY штатний_розпис.назва_посади;
-
--- фізичні особи, що є юридичними, номера їх рахунків++++++++++++++++==========
+				 -- -------------------------------------------------------------
+-- ---------------------------1---------------------------------
+-- фізичні особи, що є юридичними, номера їх рахунків
 CREATE VIEW рахунки_юрид_осіб(повна_назва, керівник, рахунки_керівника, юридичні_рахунки) AS
-(SELECT юридичні_особи.повна_назва, фізичні_особи.ПІБ, ARRAY_AGG(карткові_рахунки.номер_рахунку), ARRAY_AGG(рахунки_юридичних_осіб.номер_рахунку)
+(SELECT юридичні_особи.повна_назва, фізичні_особи.ПІБ, GROUP_CONCAT(карткові_рахунки.номер_рахунку), GROUP_CONCAT(рахунки_юридичних_осіб.номер_рахунку)
 FROM фізичні_особи, юридичні_особи, карткові_рахунки, рахунки_юридичних_осіб
 WHERE фізичні_особи.ід = юридичні_особи.ід_керівника
 AND юридичні_особи.ід = рахунки_юридичних_осіб.ід_юридичної_особи
@@ -1755,34 +1549,50 @@ AND фізичні_особи.ід = карткові_рахунки.ід_фіз
 GROUP BY юридичні_особи.повна_назва, фізичні_особи.ПІБ);
 
 SELECT * FROM рахунки_юрид_осіб;
-
+-- ---------------------------2---------------------------------
 -- валюта, яку найчастіше обмінюють та рахунки з нею
 CREATE VIEW найбільш_обмінювана_валюта(валюта, кількість_обмінів, карти) AS
-(SELECT довідник_валют.назва, COUNT(журнал_валютообмінних_операцій.сума_валюти_обміну), ARRAY_AGG(карткові_рахунки.ід)
-FROM довідник_валют, журнал_валютообмінних_операцій, карткові_рахунки, види_карт
+(SELECT довідник_валют.назва, COUNT(журнал_валютообмінних_операцій.сума_валюти_обміну), GROUP_CONCAT(distinct карткові_рахунки.номер_рахунку)
+FROM довідник_валют, журнал_валютообмінних_операцій, карткові_рахунки, види_карт, тарифи_для_фізичних_осіб
 WHERE довідник_валют.ід = журнал_валютообмінних_операцій.ід_валюти
-AND довідник_валют.ід = види_карт.ід_валюти
+AND довідник_валют.ід = тарифи_для_фізичних_осіб.ід_валюти
+AND тарифи_для_фізичних_осіб.ід = види_карт.ід_тарифу
 AND види_карт.ід = карткові_рахунки.види_карт_ід
 GROUP BY довідник_валют.назва);
 
 SELECT * FROM найбільш_обмінювана_валюта;
+-- ---------------------------3---------------------------------
+-- депозитні рахунки, відкриті по тарифах, відсотки яких більші середніх
+CREATE VIEW  депозитні_рахунки_комісія_вище_середньої(номер_рахунку, назва) AS
+(SELECT рахунки_юридичних_осіб.номер_рахунку, тарифи_для_юридичних_осіб.назва
+FROM тарифи_для_юридичних_осіб INNER JOIN рахунки_юридичних_осіб ON тарифи_для_юридичних_осіб.ід =  рахунки_юридичних_осіб.ід_тарифу
+WHERE тарифи_для_юридичних_осіб.назва LIKE '%Депозитний%'
+AND тарифи_для_юридичних_осіб.відсотки_в_місяць_депозитні > (SELECT avg(відсотки_в_місяць_депозитні)
+															FROM тарифи_для_юридичних_осіб));
 
--- депозитні рахунки, відкриті по тарифах, комісія яких більша середньої
+SELECT * FROM депозитні_рахунки_комісія_вище_середньої;
+-- ---------------------------4---------------------------------
+-- інформація про підрозділи
+CREATE VIEW інформація_про_підрозділи(підрозділи, адреса, назва_посади, оклад, працівники) AS
+(SELECT підрозділи.назва, підрозділи.адреса, штатний_розпис.назва_посади, штатний_розпис.оклад, працівники.ПІБ
+FROM підрозділи, штатний_розпис, працівники
+WHERE підрозділи.ід = штатний_розпис.ід_підрозділу
+AND штатний_розпис.ід = працівники.ід_штатного_розпису);
 
--- найпопулярніші послуги за останній місяць
-SELECT 
-
+SELECT * FROM інформація_про_підрозділи;
+-- ---------------------------5---------------------------------
 -- прострочення кожного кредиту
 CREATE VIEW прострочення_кредитів(ід_кредиту, юридична_особа, сума_прострочення, дата_останнього_платежу) AS
-(SELECT * FROM 
-	(SELECT кредити.ід, юридичні_особи.повна_назва, графіки_погашень_кредитів.прострочений_кредит + 
+(SELECT ід_кредиту, юридична_особа, сума, дата FROM 
+	(SELECT кредити.ід AS ід_кредиту, юридичні_особи.повна_назва AS юридична_особа, графіки_погашень_кредитів.прострочений_кредит + 
 												графіки_погашень_кредитів.сума_прострочених_відсотків +
-												графіки_погашень_кредитів.сума_пені,
-												графіки_погашень_кредитів.дата,
-			rank() OVER (PARTITION BY кредити.ід ORDER BY графіки_погашень_кредитів.дата ASC)
+												графіки_погашень_кредитів.сума_пені AS сума,
+												графіки_погашень_кредитів.дата AS дата,
+			rank() OVER (PARTITION BY кредити.ід ORDER BY графіки_погашень_кредитів.дата ASC) as номер
 	FROM кредити, юридичні_особи, графіки_погашень_кредитів
 	WHERE кредити.ід = графіки_погашень_кредитів.ід_кредиту
-	AND юридичні_особи.ід = кредити.ід_юридичної_особи) AS cc
-WHERE rank = 1);
+	AND юридичні_особи.ід = кредити.ід_юридичної_особи) cc
+WHERE номер = 1);
 
 SELECT * FROM прострочення_кредитів;
+
